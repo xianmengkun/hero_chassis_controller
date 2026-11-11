@@ -13,6 +13,7 @@ add_definitions(-Wall)
 find_package(catkin REQUIRED
     COMPONENTS
     roscpp
+    geometry_msgs
     controller_interface
     hardware_interface
     pluginlib
@@ -36,6 +37,7 @@ catkin_package(
     ${PROJECT_NAME}
     CATKIN_DEPENDS
     roscpp
+    geometry_msgs
     controller_interface
     hardware_interface
     pluginlib
@@ -78,7 +80,6 @@ install(
     RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
-## 装到 share 下，install 空间里 pluginlib 才找得到这份插件描述
 install(
     FILES hero_chassis_controller_plugins.xml
     DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}

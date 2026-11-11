@@ -3,10 +3,11 @@
 //
 #pragma once
 #include <controller_interface/controller.h>
+#include <geometry_msgs/Twist.h>
 #include <hardware_interface/joint_command_interface.h>
 #include <control_toolbox/pid.h>
-#include <XmlRpcValue.h>
 #include <ros/node_handle.h>
+#include <ros/subscriber.h>
 #include <string>
 #include <vector>
 
@@ -29,16 +30,22 @@ class HeroChassisController
  private:
   static constexpr int WheelN = 4;
 
-  //读速度，写力矩
+  void CmdVelCallback(const geometry_msgs::Twist& msg);
+
   hardware_interface::JointHandle joints_[WheelN];
 
   control_toolbox::Pid pids_[WheelN];
 
-  //各自转速，rad单位
   double target_velocity_[WheelN]{};
 
-  //关节名，顺序要和数组对应
   std::vector<std::string> joint_names_;
+
+  ros::Subscriber cmd_vel_sub_;
+
+
+  double wheel_radius_{0.07625};
+  double half_wheel_base_{0.2};
+  double half_wheel_track_{0.2};
 };
 
 }  // namespace hero_chassis_controller

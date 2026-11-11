@@ -7,7 +7,10 @@ hero_chassis_controller:
     - left_back_wheel_joint
     - right_back_wheel_joint
 
-  target_velocity: [10.0, 10.0, 10.0, 10.0]
+
+  wheel_radius: 0.07625
+  wheel_base: 0.4
+  wheel_track: 0.4
 
   pid:
     left_front_wheel_joint:
