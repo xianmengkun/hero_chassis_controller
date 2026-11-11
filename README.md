@@ -52,6 +52,6 @@ rosrun rqt_reconfigure rqt_reconfigure   # 拖动 p/i/d 滑块，观察 /joint_s
 rosrun rqt_plot rqt_plot /joint_states/velocity[0]
 ```
 
-## 许可
-
-BSD，详见 `LICENSE`。
+## 声明
+- 本英雄底盘控制器由本人及ai编写，ai起到辅助，纠错，教学作用，并未完全使用ai直接生成。
+- qwq佛祖保佑
