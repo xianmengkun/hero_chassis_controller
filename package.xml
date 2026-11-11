@@ -2,19 +2,23 @@
 <package format="2">
   <name>hero_chassis_controller</name>
   <version>0.1.0</version>
-  <description>Hero chassis controller for RoboMaster chassis.</description>
-  <maintainer email="19878887039@613.com">kk</maintainer>
+  <description>Hero chassis controller with per-wheel PID velocity control.</description>
+  <maintainer email="19878887039@163.com">kk</maintainer>
   <license>BSD</license>
-  <author email="19878887039@613.com">kk</author>
+  <author email="19878887039@163.com">kk</author>
 
-  <!-- buildtool_depend: dependencies of the build process -->
   <buildtool_depend>catkin</buildtool_depend>
-  <!-- build_depend: dependencies only used in source files -->
-  <build_depend>boost</build_depend>
-  <!-- depend: build, export, and execution dependency -->
-  <depend>eigen</depend>
-  <depend>roscpp</depend>
-  <depend>sensor_msgs</depend>
 
-  <build_depend>roslint</build_depend>
+  <depend>roscpp</depend>
+  <depend>controller_interface</depend>
+  <depend>hardware_interface</depend>
+  <depend>pluginlib</depend>
+  <depend>control_toolbox</depend>
+  <depend>realtime_tools</depend>
+  <depend>dynamic_reconfigure</depend>
+  <depend>rm_description</depend>
+
+  <export>
+    <controller_interface plugin="${prefix}/hero_chassis_controller_plugins.xml"/>
+  </export>
 </package>

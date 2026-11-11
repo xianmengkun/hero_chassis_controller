@@ -1,0 +1,40 @@
+hero_chassis_controller:
+  type: hero_chassis_controller/HeroChassisController
+
+  joints:
+    - left_front_wheel_joint
+    - right_front_wheel_joint
+    - left_back_wheel_joint
+    - right_back_wheel_joint
+
+  target_velocity: [10.0, 10.0, 10.0, 10.0]
+
+  pid:
+    left_front_wheel_joint:
+      p: 5.0
+      i: 0.0
+      d: 0.0
+      i_clamp_max: 1.0
+      i_clamp_min: -1.0
+    right_front_wheel_joint:
+      p: 5.0
+      i: 0.0
+      d: 0.0
+      i_clamp_max: 1.0
+      i_clamp_min: -1.0
+    left_back_wheel_joint:
+      p: 5.0
+      i: 0.0
+      d: 0.0
+      i_clamp_max: 1.0
+      i_clamp_min: -1.0
+    right_back_wheel_joint:
+      p: 5.0
+      i: 0.0
+      d: 0.0
+      i_clamp_max: 1.0
+      i_clamp_min: -1.0
+
+joint_state_controller:
+  type: joint_state_controller/JointStateController
+  publish_rate: 50
