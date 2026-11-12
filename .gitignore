@@ -169,5 +169,5 @@ Temporary Items
 
 # End of https://www.gitignore.io/api/c++,linux,macos,clion
 
-# ---- 本项目补充规则 ----
+# ---- Package-specific rules ----
 .idea/

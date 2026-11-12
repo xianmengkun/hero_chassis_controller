@@ -1,0 +1,12 @@
+---
+# Formatting config for the ROS C++ Style Guide
+# Usage: clang-format -i src/hero_chassis_controller.cpp
+BasedOnStyle: Google
+Language: Cpp
+ColumnLimit: 120
+IndentWidth: 2
+AccessModifierOffset: -1
+SortIncludes: false
+BreakBeforeBraces: Attach
+PointerAlignment: Left
+...

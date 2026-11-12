@@ -76,12 +76,76 @@ v_right_back  = (vx - vy + k * wz) / wheel_radius
 
 实测（`wz=1.0` 时四轮转速 `[-5.27, -5.08, +5.23, +5.35]`，理论值 ±5.25）。
 
+### 正运动学（里程计）
+
+反过来，用四个轮子的实际转速算出底盘速度：
+
+```
+k = (wheel_base + wheel_track) / 2
+
+vx = r/4 * ( +w_left_front + w_right_front + w_left_back + w_right_back)
+vy = r/4 * ( -w_left_front + w_right_front + w_left_back - w_right_back)
+wz = r/(4k) * ( -w_left_front + w_right_front - w_left_back + w_right_back)
+```
+
+算出来的速度是相对车体的，要按当前朝向转到 `odom` 坐标系，再按控制周期累加：
+
+```
+x     += (vx * cos(θ) - vy * sin(θ)) * dt
+y     += (vx * sin(θ) + vy * cos(θ)) * dt
+θ     += wz * dt
+```
+
+每周期发布：
+
+- `/odom`（`nav_msgs/Odometry`）—— 位姿 + 当前速度
+- TF `odom` → `base_link`
+
+`update()` 由 `gazebo_ros_control` 以 1000 Hz 调用，积分每周期都做，
+发布限流到 50 Hz（`last_odom_time_` 判断 0.02 s）。
+
+实测（`/gazebo/get_model_state` 作为真值对比）：
+
+| 动作（3 s） | odom | Gazebo 真值 | 误差 |
+|---|---|---|---|
+| 前进 vx=0.4 | (+0.192, −0.005) | (+0.194, −0.005) | 0.002 m |
+| 左移 vy=0.4 | (+0.338, +0.191) | (+0.353, +0.175) | 0.016 m |
+| 左转 wz=0.8 | yaw +0.636 | yaw +0.659 | 0.023 rad |
+
+误差主要来自麦克纳姆轮打滑（横移时最明显），不是公式问题。
+
 ## 调参
 
 ```bash
 rosrun rqt_reconfigure rqt_reconfigure   # 拖动 p/i/d 滑块，观察 /joint_states 的速度
 rosrun rqt_plot rqt_plot /joint_states/velocity[0]
 ```
+
+## 代码规范
+
+按 [ROS C++ Style Guide](http://wiki.ros.org/CppStyleGuide) 编写（Google C++ Style 的衍生物，
+行宽 120 列）。包根目录放了 `.clang-format`，格式用 clang-format 保证：
+
+```bash
+cd ~/catkin_ws/src/hero_chassis_controller
+
+# 自动格式化
+clang-format -i src/hero_chassis_controller.cpp include/hero_chassis_controller/hero_chassis_controller.h
+
+# 只检查不改文件，不合规会返回非 0
+clang-format -n --Werror src/hero_chassis_controller.cpp include/hero_chassis_controller/hero_chassis_controller.h
+```
+
+遵守的主要几条：
+
+- 2 空格缩进，行宽 ≤ 120 字符
+- 类名、函数名用 `CamelCase`；变量名、参数名用 `snake_case`
+- 成员变量末尾加下划线（`wheel_radius_`）
+- 常量以 `k` 开头（`kWheelNum`、`kOdomPublishPeriod`）
+- `public` 写在 `private` 前面
+- 只用 `//` 注释，`//` 后面跟一个空格
+- include 顺序：本文件对应的头文件 → C/C++ 标准库 → ROS / 第三方库
+- 每个文件顶部有版权声明
 
 ## 声明
 - 本英雄底盘控制器由本人及ai编写，ai起到辅助，纠错，教学作用，并未完全使用ai直接生成。

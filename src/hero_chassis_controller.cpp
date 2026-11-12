@@ -1,72 +1,164 @@
 //
 // Created by kk on 2026/11/10.
 //
+// Part of the hero_chassis_controller package. BSD license, see LICENSE.
+//
 #include "hero_chassis_controller/hero_chassis_controller.h"
+#include <cmath>
 #include <pluginlib/class_list_macros.hpp>
 
 namespace hero_chassis_controller {
 
-bool HeroChassisController::init(hardware_interface::EffortJointInterface* hw,
-                                ros::NodeHandle& root_nh, ros::NodeHandle& controller_nh) {
-  //读关节名。yaml里4个joints，顺序与下面一致
+namespace {
+// Odom publish period, s
+constexpr double kOdomPublishPeriod = 0.02;
+}  // namespace
+
+bool HeroChassisController::init(hardware_interface::EffortJointInterface* hw, ros::NodeHandle& root_nh,
+                                 ros::NodeHandle& controller_nh) {
+  // Joint names from yaml
   controller_nh.getParam("joints", joint_names_);
 
-  // take handle、读pid参数
-  for (int i = 0; i < WheelN; ++i) {
+  for (int i = 0; i < kWheelNum; ++i) {
+    // Joint handle
     joints_[i] = hw->getHandle(joint_names_[i]);
 
+    // Wheel PID
     ros::NodeHandle pid_nh(controller_nh, "pid/" + joint_names_[i]);
     pids_[i].init(pid_nh);
 
-    joints_[i].setCommand(0.0);  // 清零力矩
+    // Zero effort
+    joints_[i].setCommand(0.0);
   }
-  double wheel_base = 0.4;   //前后轴距
-  double wheel_track = 0.4;  //左右轮距
+
+  // Chassis geometry
+  double wheel_base = 0.4;   // wheelbase
+  double wheel_track = 0.4;  // track
   controller_nh.param("wheel_radius", wheel_radius_, 0.07625);
   controller_nh.param("wheel_base", wheel_base, 0.4);
   controller_nh.param("wheel_track", wheel_track, 0.4);
 
-  //逆运动学里是轮子到中心的距离
+  // Wheel-to-center distance
   half_wheel_base_ = wheel_base / 2.0;
   half_wheel_track_ = wheel_track / 2.0;
 
-  // /cmd_vel 在根命名空间，用 root_nh
+  // /cmd_vel subscriber, root namespace
   cmd_vel_sub_ = root_nh.subscribe("/cmd_vel", 1, &HeroChassisController::CmdVelCallback, this);
+
+  // /odom publisher
+  odom_pub_ = root_nh.advertise<nav_msgs::Odometry>("/odom", 50);
 
   return true;
 }
 
 void HeroChassisController::starting(const ros::Time& /*time*/) {
-  for (int i = 0; i < WheelN; ++i) pids_[i].reset();  // 清积分和上次的输出
+  // Reset PID integral and last output
+  for (int i = 0; i < kWheelNum; ++i) pids_[i].reset();
+
+  // Reset odometry
+  x_ = 0.0;
+  y_ = 0.0;
+  theta_ = 0.0;
+  last_odom_time_ = ros::Time::now();
 }
 
-//逆运动学：底盘速度 -> 四个轮子的转速
+// Inverse kinematics: chassis velocity to wheel velocities
 void HeroChassisController::CmdVelCallback(const geometry_msgs::Twist& msg) {
-  const double vx = msg.linear.x;   //前
-  const double vy = msg.linear.y;   //左
-  const double wz = msg.angular.z;  //逆时针转
+  // Command velocities
+  const double vx = msg.linear.x;   // forward
+  const double vy = msg.linear.y;   // left
+  const double wz = msg.angular.z;  // counter-clockwise
 
-  //麦轮公式常数：两个方向离中心距离和
+  // Mecanum constant: half wheelbase + half track
   const double k = half_wheel_base_ + half_wheel_track_;
 
-  target_velocity_[0] = (vx - vy - k * wz) / wheel_radius_;  //LF
-  target_velocity_[1] = (vx + vy + k * wz) / wheel_radius_;  //RF
-  target_velocity_[2] = (vx + vy - k * wz) / wheel_radius_;  //LB
-  target_velocity_[3] = (vx - vy + k * wz) / wheel_radius_;  //RB
+  // Order: LF, RF, LB, RB
+  target_velocity_[0] = (vx - vy - k * wz) / wheel_radius_;  // LF
+  target_velocity_[1] = (vx + vy + k * wz) / wheel_radius_;  // RF
+  target_velocity_[2] = (vx + vy - k * wz) / wheel_radius_;  // LB
+  target_velocity_[3] = (vx - vy + k * wz) / wheel_radius_;  // RB
 }
 
-void HeroChassisController::update(const ros::Time& /*time*/, const ros::Duration& period) {
-  for (int i = 0; i < WheelN; ++i) {
-    const double current = joints_[i].getVelocity();     // 实际转速
-    const double error = target_velocity_[i] - current;  // 目标 − 实际
+void HeroChassisController::update(const ros::Time& time, const ros::Duration& period) {
+  for (int i = 0; i < kWheelNum; ++i) {
+    // Error = target - measured
+    const double current = joints_[i].getVelocity();
+    const double error = target_velocity_[i] - current;
 
+    // PID output
     const double effort = pids_[i].computeCommand(error, period);
 
+    // Send effort
     joints_[i].setCommand(effort);
   }
+
+  UpdateOdometry(time, period);
+}
+
+// Forward kinematics and integration, from wheel velocities to pose
+void HeroChassisController::UpdateOdometry(const ros::Time& time, const ros::Duration& period) {
+  // Measured wheel velocities
+  double wheel_velocity[kWheelNum];
+  for (int i = 0; i < kWheelNum; ++i) {
+    wheel_velocity[i] = joints_[i].getVelocity();
+  }
+
+  const double k = half_wheel_base_ + half_wheel_track_;
+
+  // Order: LF, RF, LB, RB
+  const double vx =
+      wheel_radius_ / kWheelNum * (wheel_velocity[0] + wheel_velocity[1] + wheel_velocity[2] + wheel_velocity[3]);
+  const double vy =
+      wheel_radius_ / kWheelNum * (-wheel_velocity[0] + wheel_velocity[1] + wheel_velocity[2] - wheel_velocity[3]);
+  const double wz = wheel_radius_ / (kWheelNum * k) *
+                    (-wheel_velocity[0] + wheel_velocity[1] - wheel_velocity[2] + wheel_velocity[3]);
+
+  // Body frame velocity, rotate into odom then integrate
+  const double dt = period.toSec();
+  x_ += (vx * cos(theta_) - vy * sin(theta_)) * dt;
+  y_ += (vx * sin(theta_) + vy * cos(theta_)) * dt;
+  theta_ += wz * dt;
+
+  // Limit /odom rate
+  if ((time - last_odom_time_).toSec() < kOdomPublishPeriod) return;
+  last_odom_time_ = time;
+
+  // Yaw to quaternion, z axis only
+  geometry_msgs::Quaternion q;
+  q.z = sin(theta_ / 2.0);
+  q.w = cos(theta_ / 2.0);
+
+  // Header
+  nav_msgs::Odometry odom;
+  odom.header.stamp = time;
+  odom.header.frame_id = "odom";
+  odom.child_frame_id = "base_link";
+
+  // Pose
+  odom.pose.pose.position.x = x_;
+  odom.pose.pose.position.y = y_;
+  odom.pose.pose.orientation = q;
+
+  // Velocity
+  odom.twist.twist.linear.x = vx;
+  odom.twist.twist.linear.y = vy;
+  odom.twist.twist.angular.z = wz;
+
+  // Publish
+  odom_pub_.publish(odom);
+
+  // Broadcast odom -> base_link
+  geometry_msgs::TransformStamped tf;
+  tf.header.stamp = time;
+  tf.header.frame_id = "odom";
+  tf.child_frame_id = "base_link";
+  tf.transform.translation.x = x_;
+  tf.transform.translation.y = y_;
+  tf.transform.rotation = q;
+  tf_broadcaster_.sendTransform(tf);
 }
 
 }  // namespace hero_chassis_controller
 
-// 告诉 pluginlib 这个类存在
-PLUGINLIB_EXPORT_CLASS(hero_chassis_controller::HeroChassisController,controller_interface::ControllerBase)
+// Register with pluginlib
+PLUGINLIB_EXPORT_CLASS(hero_chassis_controller::HeroChassisController, controller_interface::ControllerBase)
