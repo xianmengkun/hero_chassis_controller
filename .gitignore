@@ -171,3 +171,7 @@ Temporary Items
 
 # ---- Package-specific rules ----
 .idea/
+
+# Python cache
+__pycache__/
+*.pyc

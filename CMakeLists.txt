@@ -89,6 +89,12 @@ install(
     DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
 
+## Keyboard teleop script
+catkin_install_python(PROGRAMS
+    scripts/teleop_keyboard.py
+    DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
 install(
     DIRECTORY include/${PROJECT_NAME}/
     DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
