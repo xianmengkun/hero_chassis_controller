@@ -12,6 +12,11 @@ hero_chassis_controller:
   wheel_base: 0.4
   wheel_track: 0.4
 
+  # Velocity command frame: chassis (default) or global
+  # global reads /cmd_vel in world_frame, then rotates it into base_link with tf
+  velocity_mode: chassis
+  world_frame: odom
+
   pid:
     left_front_wheel_joint:
       p: 5.0

@@ -16,46 +16,45 @@ constexpr double kOdomPublishPeriod = 0.02;
 
 bool HeroChassisController::init(hardware_interface::EffortJointInterface* hw, ros::NodeHandle& root_nh,
                                  ros::NodeHandle& controller_nh) {
-  // Joint names from yaml
   controller_nh.getParam("joints", joint_names_);
 
   for (int i = 0; i < kWheelNum; ++i) {
-    // Joint handle
     joints_[i] = hw->getHandle(joint_names_[i]);
 
-    // Wheel PID
     ros::NodeHandle pid_nh(controller_nh, "pid/" + joint_names_[i]);
     pids_[i].init(pid_nh);
 
-    // Zero effort
     joints_[i].setCommand(0.0);
   }
 
-  // Chassis geometry
   double wheel_base = 0.4;   // wheelbase
   double wheel_track = 0.4;  // track
   controller_nh.param("wheel_radius", wheel_radius_, 0.07625);
   controller_nh.param("wheel_base", wheel_base, 0.4);
   controller_nh.param("wheel_track", wheel_track, 0.4);
 
-  // Wheel-to-center distance
   half_wheel_base_ = wheel_base / 2.0;
   half_wheel_track_ = wheel_track / 2.0;
 
-  // /cmd_vel subscriber, root namespace
+  std::string velocity_mode = "chassis";
+  controller_nh.param<std::string>("velocity_mode", velocity_mode, "chassis");
+  controller_nh.param<std::string>("world_frame", world_frame_, "odom");
+  use_world_frame_ = (velocity_mode == "global");
+
+  tf_listener_ = std::make_unique<tf2_ros::TransformListener>(tf_buffer_);
+
   cmd_vel_sub_ = root_nh.subscribe("/cmd_vel", 1, &HeroChassisController::CmdVelCallback, this);
 
-  // /odom publisher
   odom_pub_ = root_nh.advertise<nav_msgs::Odometry>("/odom", 50);
 
   return true;
 }
 
 void HeroChassisController::starting(const ros::Time& /*time*/) {
-  // Reset PID integral and last output
   for (int i = 0; i < kWheelNum; ++i) pids_[i].reset();
 
-  // Reset odometry
+  for (int i = 0; i < kWheelNum; ++i) target_velocity_[i] = 0.0;
+
   x_ = 0.0;
   y_ = 0.0;
   theta_ = 0.0;
@@ -64,10 +63,25 @@ void HeroChassisController::starting(const ros::Time& /*time*/) {
 
 // Inverse kinematics: chassis velocity to wheel velocities
 void HeroChassisController::CmdVelCallback(const geometry_msgs::Twist& msg) {
-  // Command velocities
-  const double vx = msg.linear.x;   // forward
-  const double vy = msg.linear.y;   // left
+  double vx = msg.linear.x;         // forward
+  double vy = msg.linear.y;         // left
   const double wz = msg.angular.z;  // counter-clockwise
+
+  // Global mode: the command is in the world frame, rotate it into base_link
+  if (use_world_frame_) {
+    if (!tf_buffer_.canTransform("base_link", world_frame_, ros::Time(0))) return;
+
+    const geometry_msgs::TransformStamped world_to_base =
+        tf_buffer_.lookupTransform("base_link", world_frame_, ros::Time(0));
+
+    tf2::Quaternion q(world_to_base.transform.rotation.x, world_to_base.transform.rotation.y,
+                      world_to_base.transform.rotation.z, world_to_base.transform.rotation.w);
+    tf2::Vector3 v(vx, vy, 0.0);
+    v = tf2::quatRotate(q, v);
+
+    vx = v.x();
+    vy = v.y();
+  }
 
   // Mecanum constant: half wheelbase + half track
   const double k = half_wheel_base_ + half_wheel_track_;
@@ -81,14 +95,11 @@ void HeroChassisController::CmdVelCallback(const geometry_msgs::Twist& msg) {
 
 void HeroChassisController::update(const ros::Time& time, const ros::Duration& period) {
   for (int i = 0; i < kWheelNum; ++i) {
-    // Error = target - measured
     const double current = joints_[i].getVelocity();
     const double error = target_velocity_[i] - current;
 
-    // PID output
     const double effort = pids_[i].computeCommand(error, period);
 
-    // Send effort
     joints_[i].setCommand(effort);
   }
 
@@ -97,7 +108,6 @@ void HeroChassisController::update(const ros::Time& time, const ros::Duration& p
 
 // Forward kinematics and integration, from wheel velocities to pose
 void HeroChassisController::UpdateOdometry(const ros::Time& time, const ros::Duration& period) {
-  // Measured wheel velocities
   double wheel_velocity[kWheelNum];
   for (int i = 0; i < kWheelNum; ++i) {
     wheel_velocity[i] = joints_[i].getVelocity();
@@ -119,32 +129,23 @@ void HeroChassisController::UpdateOdometry(const ros::Time& time, const ros::Dur
   y_ += (vx * sin(theta_) + vy * cos(theta_)) * dt;
   theta_ += wz * dt;
 
-  // Limit /odom rate
   if ((time - last_odom_time_).toSec() < kOdomPublishPeriod) return;
   last_odom_time_ = time;
 
-  // Yaw to quaternion, z axis only
   geometry_msgs::Quaternion q;
   q.z = sin(theta_ / 2.0);
   q.w = cos(theta_ / 2.0);
 
-  // Header
   nav_msgs::Odometry odom;
   odom.header.stamp = time;
   odom.header.frame_id = "odom";
   odom.child_frame_id = "base_link";
-
-  // Pose
   odom.pose.pose.position.x = x_;
   odom.pose.pose.position.y = y_;
   odom.pose.pose.orientation = q;
-
-  // Velocity
   odom.twist.twist.linear.x = vx;
   odom.twist.twist.linear.y = vy;
   odom.twist.twist.angular.z = wz;
-
-  // Publish
   odom_pub_.publish(odom);
 
   // Broadcast odom -> base_link
